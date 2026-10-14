@@ -1,0 +1,96 @@
+# Builds the iOS SecurityCam app on every push/PR to main.
+# Produces (a) a simulator build to prove it compiles and (b) an unsigned IPA
+# suitable for sideloading after re-signing (see README "Signed builds").
+name: iOS Build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build:
+    # macos-14 runners ship Xcode 15.x, which fully supports building with an
+    # iOS 12.0 deployment target and Swift 5 language mode. We select
+    # Xcode 15.4 explicitly below (state chosen version here as required).
+    runs-on: macos-14
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Select Xcode 15.4
+        run: sudo xcode-select -s /Applications/Xcode_15.4.app
+
+      - name: Show toolchain versions
+        run: |
+          xcodebuild -version
+          swift --version || true
+          xcodebuild -showsdks | grep -i iphoneos || true
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Generate Xcode project
+        working-directory: ios
+        run: xcodegen generate
+
+      - name: Build for iOS Simulator (Debug, no signing)
+        run: |
+          set -o pipefail
+          xcodebuild \
+            -project ios/SecurityCam.xcodeproj \
+            -scheme SecurityCam \
+            -sdk iphonesimulator \
+            -configuration Debug \
+            -destination 'generic/platform=iOS Simulator' \
+            CODE_SIGNING_ALLOWED=NO \
+            build 2>&1 | tee sim-build.log
+
+      - name: Archive for device (Release, unsigned)
+        run: |
+          set -o pipefail
+          xcodebuild \
+            -project ios/SecurityCam.xcodeproj \
+            -scheme SecurityCam \
+            -sdk iphoneos \
+            -configuration Release \
+            -derivedDataPath ios/build \
+            CODE_SIGNING_ALLOWED=NO \
+            build 2>&1 | tee device-build.log
+
+      - name: Package unsigned IPA
+        run: |
+          APP=$(find ios/build -type d -name "SecurityCam.app" -path "*iphoneos*" | head -n 1)
+          if [ -z "$APP" ]; then
+            echo "No iphoneos SecurityCam.app found under ios/build" >&2
+            find ios/build -maxdepth 4 -type d -name "*.app" >&2
+            exit 1
+          fi
+          echo "Packaging $APP"
+          mkdir -p ipa/Payload
+          cp -R "$APP" ipa/Payload/
+          (cd ipa && zip -qry ../SecurityCam-unsigned.ipa Payload)
+          ls -l SecurityCam-unsigned.ipa
+
+      - name: Upload unsigned IPA artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: SecurityCam-unsigned-ipa
+          path: SecurityCam-unsigned.ipa
+          retention-days: 30
+
+      # Job-level log upload: runs even when earlier steps failed so you can
+      # read the xcodebuild output without re-running the pipeline.
+      - name: Upload build logs (always)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: xcodebuild-logs
+          path: |
+            sim-build.log
+            device-build.log
+          if-no-files-found: ignore
+          retention-days: 7
