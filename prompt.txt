@@ -1,0 +1,194 @@
+You are an expert iOS and Python engineer. Create a complete GitHub repository called
+"ios12-security-cam" containing two components:
+
+1. An iOS app that turns an old iPhone running iOS 12 into a security camera that
+   streams live video over the local network.
+2. A Python server with a web UI that pulls those streams and displays live feeds
+   from a locally exposed endpoint.
+
+Deliver every file with its full contents. Do not use placeholders or "..." in code.
+
+=====================================================================
+PART 1 — iOS APP (iOS 12 compatible)
+=====================================================================
+
+Constraints:
+- Language: Swift 4.2 or Swift 5 (compiles with Xcode 10.x or 11.x).
+- Deployment target: iOS 12.0. Do NOT use SwiftUI, UIScene, Combine,
+  Swift Concurrency (async/await), or any API introduced after iOS 12.
+- UI: UIKit, programmatic (no storyboards required).
+- No third-party dependencies. No CocoaPods, no Carthage, no SPM packages.
+- Use only system frameworks: UIKit, AVFoundation, CoreImage, CoreMedia,
+  CoreVideo, Foundation, Darwin (BSD sockets).
+
+Project layout (Xcode project must be generated as a file tree; include a
+minimal project.pbxproj OR provide an XcodeGen project.yml that generates it —
+prefer XcodeGen with project.yml so the CI can generate the .xcodeproj):
+
+ios/
+  project.yml                 (XcodeGen spec, deployment target iOS 12.0, bundle id com.example.securitycam)
+  SecurityCam/
+    Info.plist
+    AppDelegate.swift
+    ViewController.swift
+    CameraStreamer.swift
+    HTTPStreamServer.swift
+    Assets.xcassets/AppIcon.appiconset/Contents.json   (valid, may reference no images)
+
+Functional requirements:
+
+A. CameraStreamer
+   - Uses AVCaptureSession with preset .medium, back wide-angle camera.
+   - AVCaptureVideoDataOutput with alwaysDiscardsLateVideoFrames = true,
+     pixel format kCVPixelFormatType_32BGRA.
+   - Throttles frame processing to a configurable maxFPS (default 10).
+   - Converts each sample buffer to JPEG (quality configurable, default 0.5)
+     using CIContext + UIImage + UIImageJPEGRepresentation.
+   - Exposes a delegate callback with the JPEG Data.
+
+B. HTTPStreamServer
+   - Raw BSD socket HTTP server listening on TCP port 8080 (configurable),
+     bound to INADDR_ANY, SO_REUSEADDR set.
+   - Routes:
+       GET /stream    -> multipart/x-mixed-replace MJPEG stream (boundary "frame"),
+                         keeps the socket open and receives each published frame.
+       GET /snapshot  -> single latest JPEG with image/jpeg content type.
+       GET /          -> a simple plain-text status page.
+   - publish(jpeg:) sends each frame to all connected clients under a lock;
+     remove and close dead sockets on send failure.
+   - Accept loop runs on a background queue; each connection handled on a
+     global queue. Use SIGPIPE suppression: call
+     setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &yes, ...) on every accepted fd.
+   - Read the full request line before routing (loop recv until "\r\n").
+
+C. ViewController
+   - Full-screen AVCaptureVideoPreviewLayer showing the live camera.
+   - Bottom status label (green monospaced text) showing the stream URL
+     "http://<en0 IPv4>:8080/stream".
+   - Requests camera permission on launch; shows an error label if denied.
+   - Starts streamer and server after permission granted.
+   - Local IP helper using getifaddrs, prefers en0, falls back to any
+     non-loopback IPv4.
+   - Ensure UIApplication.shared.isIdleTimerDisabled = true (keep screen on).
+
+D. AppDelegate
+   - @UIApplicationMain, creates UIWindow programmatically, sets ViewController
+     as root.
+
+E. Info.plist must include:
+   - CFBundleDisplayName = SecurityCam
+   - NSCameraUsageDescription
+   - NSAppTransportSecurity / NSAllowsLocalNetworking = true
+   - UISupportedInterfaceOrientations (portrait only)
+   - MinimumOSVersion = 12.0
+
+F. project.yml (XcodeGen) must:
+   - Define target SecurityCam, type application, platform iOS,
+     deploymentTarget 12.0, sources SecurityCam/, info path SecurityCam/Info.plist,
+     bundleId com.example.securitycam, SWIFT_VERSION 5.0,
+     CODE_SIGNING_ALLOWED NO for CI builds (set via build settings in the workflow,
+     not hardcoded for device signing).
+
+=====================================================================
+PART 2 — PYTHON SERVER WITH WEB UI
+=====================================================================
+
+Constraints:
+- Python 3.9+.
+- Dependencies limited to: flask, requests. Pin them in requirements.txt.
+- Single entry point: server/server.py (plus server/templates/ and server/static/
+  if you split them out; a single file with an embedded HTML template is acceptable).
+
+Functionality:
+- CLI: --cam NAME=URL (repeatable), --host (default 0.0.0.0), --port (default 5000).
+- For each camera, start a daemon thread that:
+    * Opens the MJPEG URL with requests (stream=True, timeouts).
+    * Parses JPEG frames by scanning for SOI (FF D8) and EOI (FF D9) markers.
+    * Stores the latest frame and timestamp under a lock.
+    * Marks the camera offline on error and retries every 3 seconds.
+- Web UI at "/" (dark theme, responsive grid):
+    * One card per camera with name, ONLINE/OFFLINE badge, last-seen time,
+      live image refreshed every ~1 second, and a Snapshot button.
+    * Auto-refreshes camera list every 5 seconds from /api/cameras.
+    * An "Add camera" form that POSTs to /api/cameras to add a camera at runtime
+      (starts a new worker thread) and a remove button (DELETE /api/cameras/<name>).
+- Routes:
+    GET  /                      -> web UI
+    GET  /api/cameras           -> JSON list {name, url, online, last_seen}
+    POST /api/cameras           -> JSON {name, url} add camera
+    DELETE /api/cameras/<name>  -> remove camera (stop its worker)
+    GET  /feed/<name>           -> latest single JPEG (no-store cache)
+    GET  /snapshot/<name>       -> latest JPEG as download
+    GET  /stream/<name>         -> live MJPEG re-stream (multipart/x-mixed-replace)
+- Optional basic authentication: if env var DASHBOARD_PASSWORD is set, require
+  HTTP Basic auth (username "admin") on all routes. Use hmac.compare_digest.
+- Run with app.run(host, port, threaded=True).
+- Include a README.md explaining how to run it, how to expose it through
+  port forwarding or a tunnel (ngrok / Cloudflare Tunnel), and a security warning.
+
+=====================================================================
+PART 3 — GITHUB ACTIONS WORKFLOWS
+=====================================================================
+
+Create these files:
+
+.github/workflows/ios-build.yml
+  - Triggers: push and pull_request on main, plus workflow_dispatch.
+  - Runs on: macos-14 (or macos-latest). Use an Xcode version that supports
+    iOS 12 deployment target and Swift 5 (Xcode 15.x is acceptable for building
+    with iOS 12.0 deployment target; if you prefer, select Xcode 14.x).
+  - Steps:
+      1. actions/checkout@v4
+      2. Select Xcode via maybe-empty: sudo xcode-select -s /Applications/Xcode_<version>.app
+         (use a version available on the runner, and state the chosen version in a comment)
+      3. Install XcodeGen: brew install xcodegen
+      4. Generate project: cd ios && xcodegen generate
+      5. Build for simulator (no signing needed):
+         xcodebuild -project ios/SecurityCam.xcodeproj -scheme SecurityCam \
+           -sdk iphonesimulator -configuration Debug \
+           -destination 'generic/platform=iOS Simulator' \
+           CODE_SIGNING_ALLOWED=NO build
+      6. Build an unsigned IPA artifact for device/sideloading:
+         xcodebuild -project ... -scheme SecurityCam -sdk iphoneos \
+           -configuration Release CODE_SIGNING_ALLOWED=NO \
+           -derivedDataPath build archive (or build + manual Payload zip)
+         Package the .app into Payload/ and zip to SecurityCam-unsigned.ipa.
+      7. actions/upload-artifact@v4 uploading the unsigned IPA.
+  - Include a job-level "if: always()" log upload of xcodebuild output on failure.
+
+.github/workflows/python-lint.yml (optional but preferred)
+  - Runs on ubuntu-latest, Python 3.11, installs requirements, runs
+    python -m py_compile server/server.py and flake8 with max-line-length 120.
+
+Optional signed-build path (document only, do not enable by default):
+  - Explain in the README how to add secrets (APPLE_CERT_P12, APPLE_CERT_PASSWORD,
+    APPLE_PROVISION_PROFILE, KEYCHAIN_PASSWORD) and sign with a development profile
+    for installation on a real iPhone via Apple Configurator / AltStore.
+
+=====================================================================
+PART 4 — REPOSITORY FILES & DOCUMENTATION
+=====================================================================
+
+Create:
+  README.md          - project overview, architecture diagram (ASCII), setup for
+                       iOS (Xcode 10/11 or CI), running the server, exposing it
+                       safely, troubleshooting (permission denied, port in use,
+                       phone sleeping/backgrounded, iOS suspension).
+  .gitignore         - Xcode, DerivedData, *.xcodeproj (generated), __pycache__, venv, .env
+  server/requirements.txt
+  server/server.py
+  ios/project.yml
+  ios/SecurityCam/... (all Swift, plist, asset catalog files)
+  .github/workflows/ios-build.yml
+  .github/workflows/python-lint.yml
+
+=====================================================================
+QUALITY BAR
+=====================================================================
+- Every file must be complete and compile/run as-is.
+- Swift code must compile with Swift 5 and iOS 12 SDK; avoid deprecated-only
+  APIs where a replacement exists in iOS 12 (e.g. prefer jpegData(compressionQuality:)
+  on iOS 12+ over UIImageJPEGRepresentation).
+- No hardcoded personal IPs, passwords, or certificates.
+- Add brief comments explaining non-obvious parts (socket setup, MJPEG framing).
+- At the end, output a short "How to run" checklist and a list of files created.
