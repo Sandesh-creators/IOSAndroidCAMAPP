@@ -71,8 +71,9 @@ Configurator or AltStore. Not enabled by default — never commit certificates.
 Open `android/` in Android Studio (Hedgehog+) or build headless:
 
 ```sh
-cd android && gradle :app:assembleDebug   # APK in app/build/outputs/apk/debug/
-adb install app-debug.apk                 # or copy to the phone, allow "unknown sources"
+cd android && ./gradlew :app:assembleDebug   # Gradle Wrapper — only JDK 17 needed
+# APK lands in app/build/outputs/apk/debug/app-debug.apk
+adb install app/build/outputs/apk/debug/app-debug.apk   # or copy to the phone, allow "unknown sources"
 ```
 
 minSdk 21 (Android 5.0). Uses the legacy Camera1 API + `YuvImage` NV21→JPEG so
@@ -117,10 +118,17 @@ re-streamed MJPEG.
 
 ## GitHub Actions
 
-* `.github/workflows/ios-build.yml` — macos runner, XcodeGen → simulator build
-  + unsigned IPA artifact; uploads xcodebuild logs on failure.
-* `.github/workflows/android-build.yml` — ubuntu runner, JDK 17 + Gradle →
-  debug APK artifact.
+Both phone apps build entirely inside GitHub Actions — no local toolchain needed.
+Every run produces an installable artifact under the workflow's **Artifacts** section.
+
+* `.github/workflows/ios-build.yml` — macos-14 runner, Xcode 15.4 + XcodeGen →
+  simulator compile check + **unsigned `SecurityCam-unsigned.ipa`** artifact;
+  uploads xcodebuild logs on failure. Triggered on push/PR to `main` and can be
+  started manually (**Actions ▸ iOS Build ▸ Run workflow**).
+* `.github/workflows/android-build.yml` — ubuntu-latest runner, JDK 17 + the
+  committed Gradle Wrapper (`./gradlew`, Gradle 8.7) → **debug-signed
+  `app-debug.apk`** artifact (installable directly via `adb install` or by
+  copying to the phone). Manual trigger: **Actions ▸ Android Build ▸ Run workflow**.
 * `.github/workflows/python-lint.yml` — py_compile + flake8 (max line 120).
 
 ## Troubleshooting

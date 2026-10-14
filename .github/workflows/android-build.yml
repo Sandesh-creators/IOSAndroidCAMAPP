@@ -1,4 +1,6 @@
-# Builds the Android SecurityCam app with Gradle + the Eclipse Temurin JDK.
+# Builds the Android SecurityCam app with the committed Gradle Wrapper
+# (./gradlew) + Eclipse Temurin JDK 17. Because the wrapper is checked in,
+# this workflow needs NO preinstalled Gradle and works on a clean runner.
 # Produces a debug-signed APK artifact that installs directly on old spare
 # phones (minSdk 21 / Android 5.0).
 name: Android Build
@@ -30,12 +32,25 @@ jobs:
           distribution: temurin
           java-version: "17"
 
-      - name: Set up Gradle
-        uses: gradle/actions/setup-gradle@v3
+      # Caches the Gradle distribution + dependency caches between runs.
+      # The wrapper itself downloads Gradle 8.7 on first use — no manual
+      # "Set up Gradle" step needed.
+      - name: Cache Gradle
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-${{ runner.os }}-${{ hashFiles('android/gradle/wrapper/gradle-wrapper.properties', 'android/**/*.gradle.kts', 'android/gradle.properties') }}
+          restore-keys: gradle-${{ runner.os }}-
+
+      - name: Make gradlew executable
+        working-directory: android
+        run: chmod +x ./gradlew
 
       - name: Assemble debug APK
         working-directory: android
-        run: gradle --no-daemon :app:assembleDebug
+        run: ./gradlew --no-daemon :app:assembleDebug
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
@@ -44,11 +59,14 @@ jobs:
           path: android/app/build/outputs/apk/debug/app-debug.apk
           retention-days: 30
 
+      # Job-level log upload: runs even when earlier steps failed.
       - name: Upload build logs (always)
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: gradle-logs
-          path: android/.gradle/**/*.log
+          path: |
+            android/app/build/outputs/logs/*.txt
+            android/.gradle/**/*.log
           if-no-files-found: ignore
           retention-days: 7
