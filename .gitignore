@@ -1,0 +1,12 @@
+__pycache__/
+*.pyc
+venv/
+.venv/
+.gradle/
+build/
+local.properties
+*.apk
+*.aab
+Pods/
+DerivedData/
+*.xcuserstate

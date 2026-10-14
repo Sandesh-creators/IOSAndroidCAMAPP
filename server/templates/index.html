@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SecurityCam Dashboard</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <header>
+    <h1>&#128249; SecurityCam</h1>
+    <span id="clock" class="clock"></span>
+  </header>
+
+  <main>
+    <section class="add-camera">
+      <h2>Add camera</h2>
+      <form id="add-form" autocomplete="off">
+        <input type="text" id="cam-name" placeholder="name (e.g. front-door)" required>
+        <input type="url" id="cam-url" placeholder="http://192.168.1.50:8080/stream" required>
+        <button type="submit">Add</button>
+      </form>
+      <p id="add-msg" class="msg"></p>
+    </section>
+
+    <section id="grid" class="grid" aria-live="polite">
+      <!-- camera cards injected here by app.js -->
+      <noscript>This dashboard requires JavaScript.</noscript>
+    </section>
+  </main>
+
+  <footer>
+    <p>iOS/Android MJPEG cameras &rarr; this Flask dashboard. Keep it on your LAN or behind auth.</p>
+  </footer>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>

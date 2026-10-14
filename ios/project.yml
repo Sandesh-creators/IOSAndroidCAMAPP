@@ -1,0 +1,45 @@
+# XcodeGen specification for the SecurityCam iOS app.
+# Generate the .xcodeproj with:  cd ios && xcodegen generate
+# The generated project is intentionally NOT committed (see .gitignore).
+name: SecurityCam
+options:
+  bundleIdPrefix: com.example
+  deploymentTarget:
+    iOS: "12.0"
+  createIntermediateGroups: true
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    # Local / CI simulator builds do not need signing. For device builds,
+    # override these on the xcodebuild command line (see README + workflow).
+    CODE_SIGNING_ALLOWED: "NO"
+    TARGETED_DEVICE_FAMILY: "1"
+targets:
+  SecurityCam:
+    type: application
+    platform: iOS
+    deploymentTarget: "12.0"
+    sources:
+      - SecurityCam
+    info:
+      path: SecurityCam/Info.plist
+      properties:
+        CFBundleDisplayName: SecurityCam
+        CFBundleShortVersionString: "1.0"
+        CFBundleVersion: "1"
+        LSRequiresIPhoneOS: true
+        MinimumOSVersion: "12.0"
+        UILaunchScreen: {}
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+        NSCameraUsageDescription: "SecurityCam needs the camera to stream video over your local network."
+        NSAppTransportSecurity:
+          NSAllowsLocalNetworking: true
+        UIApplicationSupportsMultipleScenes: false
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.example.securitycam
+        TARGETED_DEVICE_FAMILY: "1"
+        SWIFT_VERSION: "5.0"
+        INFOPLIST_FILE: SecurityCam/Info.plist
+        GENERATE_INFOPLIST_FILE: "NO"
